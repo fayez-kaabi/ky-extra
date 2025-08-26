@@ -1,7 +1,7 @@
 {
   "name": "ky-extra",
-  "version": "0.0.0",
-  "description": "Small, zero-dep plugins and utilities for ky HTTP client: auth, smart retry, and portable in-memory cache.",
+  "version": "0.0.1",
+  "description": "Plugins for ky: auth, smart retry, TTL/LRU cache, dedup, rate limit, circuit breaker, observability + helpers. ESM-only.",
   "type": "module",
   "license": "MIT",
   "author": "",
@@ -38,7 +38,9 @@
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build",
+    "release": "npm publish --provenance --access public"
   },
   "keywords": [
     "ky",
@@ -76,16 +78,5 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
-  },
-  "scripts": {
-    "build": "rimraf dist && tsc -p tsconfig.build.json && tsup",
-    "dev": "tsup --watch",
-    "clean": "rimraf dist",
-    "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "format": "prettier --write .",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage",
-    "test:watch": "vitest",
-    "release": "npm publish --provenance --access public"
   }
 }

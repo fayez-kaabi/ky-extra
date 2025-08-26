@@ -1,6 +1,6 @@
 ## ky-extra
 
-Small, zero-dep plugins for the ky HTTP client: auth with refresh, smart retry, and a portable in-memory cache. ESM-only, tree-shakable.
+Plugins for the ky HTTP client: auth, smart retry, TTL/LRU cache, dedup, rate limit, circuit breaker, observability + helpers. Zero-dep, ESM-only, tree-shakable.
 
 [![npm version](https://img.shields.io/npm/v/ky-extra.svg)](https://www.npmjs.com/package/ky-extra)
 [![CI](https://github.com/fayez-kaabi/ky-extra/actions/workflows/ci.yml/badge.svg)](https://github.com/fayez-kaabi/ky-extra/actions/workflows/ci.yml)
