@@ -230,4 +230,29 @@ node examples/node/index.mjs
 
 You should see logs for auth refresh, retry, and cache.
 
+#### Other runnable examples
+
+- Cloudflare Workers (using Miniflare locally):
+
+  ```bash
+  npm run build
+  npx miniflare examples/workers/worker.mjs --modules --port 8787
+  # in another terminal
+  curl http://127.0.0.1:8787
+  ```
+
+- Deno:
+
+  ```bash
+  npm run build
+  deno run --allow-net examples/deno/smoke.ts
+  ```
+
+- Bun (runs the Node example):
+
+  ```bash
+  npm run build
+  bun examples/node/index.mjs
+  ```
+
 
