@@ -57,4 +57,19 @@ jobs:
           sleep 2
           node -e "fetch('http://127.0.0.1:8787').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"
 
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+      - run: npm install
+      - run: npm run build
+      - name: Run Deno smoke
+        run: deno run --allow-net examples/deno/smoke.ts
+
 
