@@ -47,6 +47,8 @@ Options:
 | scheme | string | `"Bearer"` |
 | retryOnce | boolean | `true` |
 
+Returns: Plugin (function transforming Ky options)
+
 #### withRetrySmart(options)
 
 Exponential backoff + jitter using Ky retry hooks.
@@ -56,6 +58,8 @@ Exponential backoff + jitter using Ky retry hooks.
 | limit | number | 3 |
 | statuses | number[] | `[408,429,500,502,503,504]` |
 | backoffCapMs | number | 2000 |
+
+Returns: Plugin (function transforming Ky options)
 
 #### withCache(options)
 
@@ -72,9 +76,18 @@ Notes:
 - Respects `Cache-Control: no-cache`/`no-store`.
 - Clones responses before caching.
 
+Returns: Plugin (function transforming Ky options)
+
 #### createClient(baseOptions, ...plugins)
 
 Deep-merges Ky options and concatenates hooks arrays, then returns `ky.create()`.
+
+| Parameter | Type | Description |
+|---|---|---|
+| baseOptions | `ky.Options` | Initial options for the client |
+| ...plugins | `Plugin[]` | Plugins that patch/augment options |
+
+Returns: `ky.KyInstance`
 
 #### mergeHooks(baseOptions, patchOptions)
 
