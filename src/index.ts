@@ -3,6 +3,10 @@ export type Ky = typeof ky;
 export type KyInstance = import('ky').KyInstance;
 export type Options = import('ky').Options;
 export type Hooks = import('ky').Hooks;
+export type KyRequest = import('ky').KyRequest;
+export type NormalizedOptions = import('ky').NormalizedOptions;
+export type BeforeRequestHook = import('ky').BeforeRequestHook;
+export type AfterResponseHook = import('ky').AfterResponseHook;
 
 /**
  * A plugin transforms Ky options: given current options, returns new options.
@@ -35,14 +39,14 @@ export function withAuth(
     const beforeRequest = [...(hooks.beforeRequest ?? [])];
     const afterResponse = [...(hooks.afterResponse ?? [])];
 
-    beforeRequest.push(async (request) => {
+    beforeRequest.push(async (request: KyRequest) => {
       const token = await getToken();
       if (token) {
         request.headers.set(header, `${scheme} ${token}`);
       }
     });
 
-    afterResponse.push(async (request, requestOptions, response) => {
+    afterResponse.push(async (request: KyRequest, requestOptions: NormalizedOptions, response: Response) => {
       if (response.status !== 401) return;
       const marker = 'x-ky-extra-refreshed';
       if (!request.headers.has(marker) && retryOnce) {
@@ -89,7 +93,7 @@ export function withRetrySmart(opts: WithRetrySmartOptions = {}): Plugin {
     const hooks: Hooks = options.hooks ?? {};
     const beforeRetry = [...(hooks.beforeRetry ?? [])];
 
-    beforeRetry.push(async ({request, error, retryCount, options: o}: any) => {
+    beforeRetry.push(async ({request: _request, error, retryCount, options: o}: any) => {
       const status: number | undefined = error?.response?.status;
       if (typeof status === 'number' && !statuses.includes(status)) {
         o.retry = {limit: 0};
@@ -169,9 +173,7 @@ export function withCache(opts: WithCacheOptions = {}): Plugin {
           const clone = res.clone();
           cache.set(k, {expiresAt: now + ttlMs, response: clone});
         }
-      } catch {
-        // Ignore cloning/cache errors to avoid breaking requests
-      }
+      } catch { /* ignore */ }
       return res;
     };
 
@@ -212,9 +214,7 @@ export function createClient(baseOptions: Options, ...plugins: Plugin[]): KyInst
   return ky.create(options);
 }
 
-function normalizeKyHeaders(h: any): Headers {
-  return new Headers(h as any);
-}
+//
 
 // =========================
 // Additional Plugins
@@ -291,9 +291,7 @@ export function withCircuitBreaker(opts: WithCircuitBreakerOptions = {}): Plugin
       const key = scope(req);
       let entry = getEntry(key);
       if (shouldShortCircuit(entry)) {
-        if (shortCircuitAs === 'error') {
-          return Promise.reject(new Error('Circuit breaker open'));
-        }
+        if (shortCircuitAs === 'error') return Promise.reject(new Error('Circuit breaker open'));
         return new Response('Circuit open', {status: 503});
       }
       if (entry.state === 'open' && Date.now() >= entry.nextTryAt) {
@@ -399,7 +397,7 @@ export function withObservability(opts: WithObservabilityOptions = {}): Plugin {
       beforeError.push(async (err) => {
         try {
           onError({id: 'hook', durationMs: 0, error: err});
-        } catch {}
+        } catch { /* ignore */ }
         return err;
       });
     }
@@ -462,7 +460,7 @@ export function withCacheLRU(opts: WithCacheLRUOptions = {}): Plugin {
       const res = await orig(req as any);
       const ccRes = res.headers.get('cache-control');
       if (res.ok && !(ccRes && /no-cache|no-store/i.test(ccRes))) {
-        try { setLRU(k, {expiresAt: now + ttlMs, response: res.clone()}); } catch {}
+        try { setLRU(k, {expiresAt: now + ttlMs, response: res.clone()}); } catch { /* ignore */ }
       }
       return res;
     };
@@ -479,7 +477,6 @@ export async function jsonValidated<T>(res: Response, validate: (data: unknown) 
 // Policy plugin: enforce header rules/timeout and optional HMAC signing
 export interface WithPolicyOptions {
   blockHeaders?: Array<RegExp | string>; // names to strip
-  timeoutMs?: number;
   sign?: {
     header: string; // header to set
     getKey: () => Promise<CryptoKey | ArrayBuffer | string>;
@@ -488,21 +485,18 @@ export interface WithPolicyOptions {
 }
 
 export function withPolicy(opts: WithPolicyOptions = {}): Plugin {
-  const {blockHeaders = [], timeoutMs, sign} = opts;
+  const {blockHeaders = [], sign} = opts;
   const shouldBlock = (name: string) => blockHeaders.some(p => typeof p === 'string' ? p.toLowerCase() === name.toLowerCase() : p.test(name));
   return (options: Options): Options => {
     const hooks: Hooks = options.hooks ?? {};
     const beforeRequest = [...(hooks.beforeRequest ?? [])];
-    beforeRequest.push(async (request, normalized) => {
+    beforeRequest.push(async (request: KyRequest, normalized: NormalizedOptions) => {
       // Strip blocked headers
       const h = new Headers(normalized.headers);
       for (const [k] of h) if (shouldBlock(k)) h.delete(k);
       normalized.headers = h;
-      try {
-        const rh = (request as unknown as Request).headers;
-        for (const [k] of rh) if (shouldBlock(k)) rh.delete(k);
-      } catch {}
-      // Note: Ky's NormalizedOptions does not expose `timeout`; if you need per-request timeouts,
+      // Do not attempt to mutate the original request headers; rely on normalized headers only.
+      // Note: Ky's NormalizedOptions does not expose `timeout`; for per-request timeouts,
       // configure `options.timeout` at client creation or wrap fetch externally.
       // Signing (best-effort)
       if (sign) {
@@ -518,7 +512,7 @@ export function withPolicy(opts: WithPolicyOptions = {}): Plugin {
           const b64 = btoa(String.fromCharCode(...new Uint8Array(sig)));
           h.set(header, b64);
           normalized.headers = h;
-        } catch {}
+        } catch { /* ignore */ }
       }
     });
     return {...options, hooks: {...hooks, beforeRequest}} as Options;
