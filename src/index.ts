@@ -216,4 +216,335 @@ function normalizeKyHeaders(h: any): Headers {
   return new Headers(h as any);
 }
 
+// =========================
+// Additional Plugins
+// =========================
+
+export interface WithDedupOptions {
+  key?: (req: Request) => string | Promise<string>;
+  methods?: Array<'GET' | 'HEAD'>;
+}
+
+export function withDedup(opts: WithDedupOptions = {}): Plugin {
+  const {methods = ['GET', 'HEAD'], key} = opts;
+  const inflight = new Map<string, Promise<Response>>();
+
+  const makeKey = async (req: Request): Promise<string> => {
+    if (key) return key(req);
+    const u = new URL(req.url);
+    return `${req.method} ${u.pathname}${u.search}`;
+  };
+
+  return (options: Options): Options => {
+    const origFetch = options.fetch ?? fetch;
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const method = req.method.toUpperCase();
+      if (!methods.includes(method as 'GET' | 'HEAD')) {
+        return origFetch(req as any);
+      }
+      const k = await makeKey(req);
+      const existing = inflight.get(k);
+      if (existing) {
+        return existing.then(r => r.clone());
+      }
+      const p = origFetch(req as any).finally(() => inflight.delete(k));
+      inflight.set(k, p);
+      const res = await p;
+      return res;
+    };
+    return {...options, fetch: wrapped} as Options;
+  };
+}
+
+type BreakerState = 'closed' | 'open' | 'half-open';
+export interface WithCircuitBreakerOptions {
+  failureThreshold?: number; // consecutive failures
+  recoveryTimeoutMs?: number; // open -> half-open after
+  failureStatuses?: number[]; // statuses that count as failure
+  scope?: (req: Request) => string; // key scope (e.g., host)
+  shortCircuitAs?: 'error' | 'response';
+}
+
+export function withCircuitBreaker(opts: WithCircuitBreakerOptions = {}): Plugin {
+  const {
+    failureThreshold = 5,
+    recoveryTimeoutMs = 5000,
+    failureStatuses = [500, 502, 503, 504],
+    scope = (req) => new URL(req.url).host,
+    shortCircuitAs = 'response',
+  } = opts;
+  interface Entry { state: BreakerState; failures: number; nextTryAt: number; }
+  const states = new Map<string, Entry>();
+
+  const getEntry = (key: string): Entry => states.get(key) ?? {state: 'closed', failures: 0, nextTryAt: 0};
+
+  const shouldShortCircuit = (e: Entry): boolean => {
+    if (e.state === 'open') return Date.now() < e.nextTryAt;
+    return false;
+  };
+
+  return (options: Options): Options => {
+    const origFetch = options.fetch ?? fetch;
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const key = scope(req);
+      let entry = getEntry(key);
+      if (shouldShortCircuit(entry)) {
+        if (shortCircuitAs === 'error') {
+          return Promise.reject(new Error('Circuit breaker open'));
+        }
+        return new Response('Circuit open', {status: 503});
+      }
+      if (entry.state === 'open' && Date.now() >= entry.nextTryAt) {
+        entry = {state: 'half-open', failures: entry.failures, nextTryAt: 0};
+        states.set(key, entry);
+      }
+      try {
+        const res = await origFetch(req as any);
+        if (failureStatuses.includes(res.status)) {
+          // failure
+          if (entry.state === 'half-open' || ++entry.failures >= failureThreshold) {
+            entry.state = 'open';
+            entry.nextTryAt = Date.now() + recoveryTimeoutMs;
+          }
+          states.set(key, entry);
+        } else {
+          // success
+          states.set(key, {state: 'closed', failures: 0, nextTryAt: 0});
+        }
+        return res;
+      } catch (err) {
+        // network error counts as failure
+        if (entry.state === 'half-open' || ++entry.failures >= failureThreshold) {
+          entry.state = 'open';
+          entry.nextTryAt = Date.now() + recoveryTimeoutMs;
+        }
+        states.set(key, entry);
+        throw err;
+      }
+    };
+    return {...options, fetch: wrapped} as Options;
+  };
+}
+
+export interface WithRateLimiterOptions {
+  capacity?: number; // max tokens
+  refillPerSecond?: number; // tokens per second
+  scope?: (req: Request) => string; // bucket key
+}
+
+export function withRateLimiter(opts: WithRateLimiterOptions = {}): Plugin {
+  const {capacity = 10, refillPerSecond = 5, scope = (req) => new URL(req.url).host} = opts;
+  interface Bucket { tokens: number; lastRefill: number; queue: Array<() => void>; }
+  const buckets = new Map<string, Bucket>();
+
+  const take = async (key: string): Promise<void> => {
+    const now = Date.now();
+    let b = buckets.get(key);
+    if (!b) { b = {tokens: capacity, lastRefill: now, queue: []}; buckets.set(key, b); }
+    // Refill
+    const elapsed = Math.max(0, now - b.lastRefill) / 1000;
+    const refill = elapsed * refillPerSecond;
+    if (refill > 0) {
+      b.tokens = Math.min(capacity, b.tokens + refill);
+      b.lastRefill = now;
+    }
+    if (b.tokens >= 1) {
+      b.tokens -= 1;
+      return;
+    }
+    await new Promise<void>(resolve => { b!.queue.push(resolve); });
+  };
+
+  const release = (key: string) => {
+    const b = buckets.get(key);
+    if (!b) return;
+    const next = b.queue.shift();
+    if (next) next();
+    else b.tokens = Math.min(capacity, b.tokens + 1);
+  };
+
+  return (options: Options): Options => {
+    const origFetch = options.fetch ?? fetch;
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const key = scope(req);
+      await take(key);
+      try {
+        const res = await origFetch(req as any);
+        return res;
+      } finally {
+        release(key);
+      }
+    };
+    return {...options, fetch: wrapped} as Options;
+  };
+}
+
+export interface WithObservabilityOptions {
+  redact?: (info: {url: string; method: string; headers: Headers}) => {url: string; method: string; headers: Headers};
+  onStart?: (info: {id: string; url: string; method: string; startMs: number}) => void;
+  onSuccess?: (info: {id: string; durationMs: number; status: number}) => void;
+  onError?: (info: {id: string; durationMs: number; error: unknown}) => void;
+}
+
+export function withObservability(opts: WithObservabilityOptions = {}): Plugin {
+  const {redact, onStart, onSuccess, onError} = opts;
+  return (options: Options): Options => {
+    const origFetch = options.fetch ?? fetch;
+    const hooks: Hooks = options.hooks ?? {};
+    const beforeError = [...(hooks.beforeError ?? [])];
+    if (onError) {
+      beforeError.push(async (err) => {
+        try {
+          onError({id: 'hook', durationMs: 0, error: err});
+        } catch {}
+        return err;
+      });
+    }
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const start = performance?.now?.() ?? Date.now();
+      try {
+        const info = {url: req.url, method: req.method, headers: req.headers};
+        const red = redact ? redact(info) : info;
+        onStart?.({id, url: red.url, method: red.method, startMs: Date.now()});
+        const res = await origFetch(req as any);
+        const end = performance?.now?.() ?? Date.now();
+        onSuccess?.({id, durationMs: end - start, status: res.status});
+        return res;
+      } catch (error) {
+        const end = performance?.now?.() ?? Date.now();
+        onError?.({id, durationMs: end - start, error});
+        throw error;
+      }
+    };
+    return {...options, fetch: wrapped, hooks: {...hooks, beforeError}} as Options;
+  };
+}
+
+export interface WithCacheLRUOptions {
+  capacity?: number; // max entries
+  ttlMs?: number;
+  methods?: Array<'GET' | 'HEAD'>;
+}
+
+export function withCacheLRU(opts: WithCacheLRUOptions = {}): Plugin {
+  const {capacity = 100, ttlMs = 10_000, methods = ['GET', 'HEAD']} = opts;
+  type Entry = {expiresAt: number; response: Response};
+  const lru = new Map<string, Entry>();
+  const getKey = (req: Request) => {
+    const u = new URL(req.url);
+    return `${req.method} ${u.pathname}${u.search}`;
+  };
+  const setLRU = (k: string, v: Entry) => {
+    if (lru.has(k)) lru.delete(k);
+    lru.set(k, v);
+    if (lru.size > capacity) {
+      const first = lru.keys().next().value as string | undefined;
+      if (first) lru.delete(first);
+    }
+  };
+  return (options: Options): Options => {
+    const orig = options.fetch ?? fetch;
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const method = req.method.toUpperCase();
+      if (!methods.includes(method as 'GET' | 'HEAD')) return orig(req as any);
+      const ccReq = req.headers.get('cache-control');
+      if (ccReq && /no-cache|no-store/i.test(ccReq)) return orig(req as any);
+      const k = getKey(req);
+      const now = Date.now();
+      const hit = lru.get(k);
+      if (hit && hit.expiresAt > now) return hit.response.clone();
+      const res = await orig(req as any);
+      const ccRes = res.headers.get('cache-control');
+      if (res.ok && !(ccRes && /no-cache|no-store/i.test(ccRes))) {
+        try { setLRU(k, {expiresAt: now + ttlMs, response: res.clone()}); } catch {}
+      }
+      return res;
+    };
+    return {...options, fetch: wrapped} as Options;
+  };
+}
+
+// Validation helper (schema-first without bundling a validator)
+export async function jsonValidated<T>(res: Response, validate: (data: unknown) => T): Promise<T> {
+  const data = await res.json();
+  return validate(data);
+}
+
+// Policy plugin: enforce header rules/timeout and optional HMAC signing
+export interface WithPolicyOptions {
+  blockHeaders?: Array<RegExp | string>; // names to strip
+  timeoutMs?: number;
+  sign?: {
+    header: string; // header to set
+    getKey: () => Promise<CryptoKey | ArrayBuffer | string>;
+    algorithm?: AlgorithmIdentifier; // e.g., {name:'HMAC', hash:'SHA-256'}
+  };
+}
+
+export function withPolicy(opts: WithPolicyOptions = {}): Plugin {
+  const {blockHeaders = [], timeoutMs, sign} = opts;
+  const shouldBlock = (name: string) => blockHeaders.some(p => typeof p === 'string' ? p.toLowerCase() === name.toLowerCase() : p.test(name));
+  return (options: Options): Options => {
+    const hooks: Hooks = options.hooks ?? {};
+    const beforeRequest = [...(hooks.beforeRequest ?? [])];
+    beforeRequest.push(async (request, normalized) => {
+      // Strip blocked headers
+      const h = new Headers(normalized.headers);
+      for (const [k] of h) if (shouldBlock(k)) h.delete(k);
+      normalized.headers = h;
+      try {
+        const rh = (request as unknown as Request).headers;
+        for (const [k] of rh) if (shouldBlock(k)) rh.delete(k);
+      } catch {}
+      // Timeout
+      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+        normalized.timeout = Math.min(normalized.timeout ?? timeoutMs, timeoutMs);
+      }
+      // Signing (best-effort)
+      if (sign) {
+        try {
+          const {header, getKey, algorithm = {name: 'HMAC', hash: 'SHA-256'}} = sign;
+          const key = await getKey();
+          const keyObj = key instanceof CryptoKey ? key : await (async () => {
+            const raw = typeof key === 'string' ? new TextEncoder().encode(key) : key;
+            return await crypto.subtle.importKey('raw', raw as ArrayBuffer, algorithm, false, ['sign']);
+          })();
+          const toSign = new TextEncoder().encode(`${normalized.method} ${new URL(request.url).pathname}${new URL(request.url).search}`);
+          const sig = await crypto.subtle.sign(algorithm, keyObj, toSign);
+          const b64 = btoa(String.fromCharCode(...new Uint8Array(sig)));
+          h.set(header, b64);
+          normalized.headers = h;
+        } catch {}
+      }
+    });
+    return {...options, hooks: {...hooks, beforeRequest}} as Options;
+  };
+}
+
+// TanStack Query adapter: create a queryFn for a Ky instance
+export function createQueryFn(instance: KyInstance) {
+  return async ({queryKey}: {queryKey: readonly [string, Record<string, any>?]}) => {
+    const [path, params] = queryKey;
+    const search = params ? new URLSearchParams(params as any).toString() : '';
+    const url = search ? `${path}?${search}` : path;
+    return instance.get(url).json<any>();
+  };
+}
+
+// Presets
+export const presets = {
+  nextServer(): Plugin[] {
+    return [withRetrySmart(), withCache(), withDedup()];
+  },
+  workers(): Plugin[] {
+    return [withRetrySmart(), withCache(), withDedup()];
+  },
+};
+
 

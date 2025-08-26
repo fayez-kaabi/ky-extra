@@ -38,6 +38,17 @@ describe('withRetrySmart', () => {
     const res = await client.get('flaky').text();
     expect(res).toBe('ok');
   });
+
+  it('does not retry on excluded status', async () => {
+    // New server that returns 400
+    const srv = http.createServer((_req, res) => { res.writeHead(400); res.end('bad'); });
+    await new Promise<void>((r) => srv.listen(0, r));
+    const port = (srv.address() as any).port;
+    const url = `http://127.0.0.1:${port}`;
+    const client = createClient({prefixUrl: url}, withRetrySmart({limit: 3, statuses: [500]}));
+    await expect(client.get('').text()).rejects.toBeTruthy();
+    await new Promise<void>((r) => srv.close(() => r()));
+  });
 });
 
 
