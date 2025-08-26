@@ -21,8 +21,13 @@ jobs:
         with:
           node-version: 20.x
           registry-url: 'https://registry.npmjs.org'
+          always-auth: true
       - run: npm config set engine-strict false
       - run: npm install
+      - name: Verify npm auth
+        run: npm config get registry && npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Create Release PR or Publish
         uses: changesets/action@v1
         with:
@@ -31,5 +36,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
 
