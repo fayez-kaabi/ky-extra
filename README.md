@@ -90,6 +90,73 @@ Deep-merges Ky options and concatenates hooks arrays, then returns `ky.create()`
 Returns: `ky.KyInstance`
 
 #### mergeHooks(baseOptions, patchOptions)
+#### withDedup(options)
+
+Coalesces concurrent GET/HEAD requests by key so only one network call happens; others receive the same cloned response.
+
+| name | type | default |
+|---|---|---|
+| key | (req: Request) => string | method + path+query |
+| methods | ("GET"|"HEAD")[] | ["GET","HEAD"] |
+
+Returns: Plugin
+
+#### withCircuitBreaker(options)
+
+Opens after consecutive failures, short-circuits further calls for a cooldown, then half-opens to probe recovery.
+
+| name | type | default |
+|---|---|---|
+| failureThreshold | number | 5 |
+| recoveryTimeoutMs | number | 5000 |
+| failureStatuses | number[] | [500,502,503,504] |
+| scope | (req: Request) => string | req host |
+| shortCircuitAs | 'error' | 'response' | 'response' |
+
+Returns: Plugin
+
+#### withRateLimiter(options)
+
+Token-bucket limiter per scope (host by default) with queueing and release.
+
+| name | type | default |
+|---|---|---|
+| capacity | number | 10 |
+| refillPerSecond | number | 5 |
+| scope | (req: Request) => string | req host |
+
+Returns: Plugin
+
+#### withCacheLRU(options)
+
+Capacity-bounded in-memory LRU cache with TTL. Respects `Cache-Control` request/response headers.
+
+| name | type | default |
+|---|---|---|
+| capacity | number | 100 |
+| ttlMs | number | 10000 |
+| methods | ("GET"|"HEAD")[] | ["GET","HEAD"] |
+
+Returns: Plugin
+
+#### withObservability(options)
+
+Lightweight hooks for start/success/error with optional redaction.
+
+| name | type | default |
+|---|---|---|
+| redact | ({url,method,headers})=>{...} | undefined |
+| onStart | (info)=>void | undefined |
+| onSuccess | (info)=>void | undefined |
+| onError | (info)=>void | undefined |
+
+Returns: Plugin
+
+#### Helpers
+
+- jsonValidated(response, validate): parse JSON and validate via provided function.
+- createQueryFn(kyInstance): returns a TanStack Query-compatible queryFn.
+
 
 Deep-merges two Ky `Options` objects where hook arrays are concatenated (base first, then patch). Used internally by `createClient` to ensure multiple plugins can add hooks without clobbering each other.
 
