@@ -53,8 +53,9 @@ jobs:
         run: npm run build
       - name: Wrangler dev smoke (Miniflare under the hood)
         run: |
-          npx wrangler dev examples/workers/worker.mjs --local --port 8787 &
-          sleep 2
+          cd examples/workers
+          npx wrangler dev --local --port 8787 &
+          sleep 5
           curl -sSf http://127.0.0.1:8787 > /dev/null
 
   deno:
