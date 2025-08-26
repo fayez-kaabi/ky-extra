@@ -7,6 +7,7 @@ export type KyRequest = import('ky').KyRequest;
 export type NormalizedOptions = import('ky').NormalizedOptions;
 export type BeforeRequestHook = import('ky').BeforeRequestHook;
 export type AfterResponseHook = import('ky').AfterResponseHook;
+export type HTTPError = import('ky').HTTPError;
 
 /**
  * A plugin transforms Ky options: given current options, returns new options.
@@ -394,7 +395,7 @@ export function withObservability(opts: WithObservabilityOptions = {}): Plugin {
     const hooks: Hooks = options.hooks ?? {};
     const beforeError = [...(hooks.beforeError ?? [])];
     if (onError) {
-      beforeError.push(async (err: unknown) => {
+      beforeError.push(async (err: HTTPError) => {
         try {
           onError({id: 'hook', durationMs: 0, error: err});
         } catch { /* ignore */ }
