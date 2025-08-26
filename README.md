@@ -152,4 +152,15 @@ pnpm test
 pnpm build
 ```
 
+#### Local runnable example (Node)
+
+After building, run a quick demo server+client:
+
+```bash
+npm run build
+node examples/node/index.mjs
+```
+
+You should see logs for auth refresh, retry, and cache.
+
 
