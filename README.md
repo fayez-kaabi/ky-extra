@@ -49,6 +49,15 @@ Options:
 
 Returns: Plugin (function transforming Ky options)
 
+Example:
+
+```ts
+const api = createClient(
+  {prefixUrl: 'https://api.example.com'},
+  withAuth(() => localStorage.getItem('token') ?? '', async () => {/* refresh */})
+);
+```
+
 #### withRetrySmart(options)
 
 Exponential backoff + jitter using Ky retry hooks.
@@ -60,6 +69,12 @@ Exponential backoff + jitter using Ky retry hooks.
 | backoffCapMs | number | 2000 |
 
 Returns: Plugin (function transforming Ky options)
+
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withRetrySmart({limit: 5, backoffCapMs: 3000}));
+```
 
 #### withCache(options)
 
@@ -77,6 +92,12 @@ Notes:
 - Clones responses before caching.
 
 Returns: Plugin (function transforming Ky options)
+
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withCache({ttlMs: 5000}));
+```
 
 #### createClient(baseOptions, ...plugins)
 
@@ -101,6 +122,12 @@ Coalesces concurrent GET/HEAD requests by key so only one network call happens; 
 
 Returns: Plugin
 
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withDedup());
+```
+
 #### withCircuitBreaker(options)
 
 Opens after consecutive failures, short-circuits further calls for a cooldown, then half-opens to probe recovery.
@@ -115,6 +142,12 @@ Opens after consecutive failures, short-circuits further calls for a cooldown, t
 
 Returns: Plugin
 
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withCircuitBreaker({failureThreshold: 3}));
+```
+
 #### withRateLimiter(options)
 
 Token-bucket limiter per scope (host by default) with queueing and release.
@@ -127,6 +160,12 @@ Token-bucket limiter per scope (host by default) with queueing and release.
 
 Returns: Plugin
 
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withRateLimiter({capacity: 2, refillPerSecond: 4}));
+```
+
 #### withCacheLRU(options)
 
 Capacity-bounded in-memory LRU cache with TTL. Respects `Cache-Control` request/response headers.
@@ -138,6 +177,12 @@ Capacity-bounded in-memory LRU cache with TTL. Respects `Cache-Control` request/
 | methods | ("GET"|"HEAD")[] | ["GET","HEAD"] |
 
 Returns: Plugin
+
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withCacheLRU({capacity: 50, ttlMs: 15000}));
+```
 
 #### withObservability(options)
 
@@ -152,10 +197,51 @@ Lightweight hooks for start/success/error with optional redaction.
 
 Returns: Plugin
 
+Example:
+
+```ts
+const api = createClient({prefixUrl: '/api'}, withObservability({
+  onStart: (e) => console.log('start', e.method, e.url),
+  onSuccess: (e) => console.log('ok', e.status, e.durationMs),
+}));
+```
+
 #### Helpers
 
 - jsonValidated(response, validate): parse JSON and validate via provided function.
 - createQueryFn(kyInstance): returns a TanStack Query-compatible queryFn.
+
+Examples:
+
+```ts
+// jsonValidated
+const user = await jsonValidated(await api.get('user').then(r => r), (d) => {
+  if (typeof d === 'object' && d && 'id' in d) return d as {id: string};
+  throw new Error('invalid');
+});
+
+// createQueryFn
+const queryFn = createQueryFn(api);
+// use with TanStack Query: queryFn({ queryKey: ['users', {page: 1}] })
+```
+
+#### createClient(baseOptions, ...plugins)
+
+| Parameter | Type | Description |
+|---|---|---|
+| baseOptions | `ky.Options` | Initial options for the client |
+| ...plugins | `Plugin[]` | Plugins that patch/augment options |
+
+Returns: `ky.KyInstance`
+
+#### mergeHooks(baseOptions, patchOptions)
+
+| Parameter | Type | Description |
+|---|---|---|
+| baseOptions | `ky.Options` | The base options (existing client state) |
+| patchOptions | `ky.Options` | The plugin-provided patch to merge into base |
+
+Returns: `ky.Options` (non-hook fields overridden by `patchOptions`; hook arrays concatenated in order: base → patch).
 
 
 Deep-merges two Ky `Options` objects where hook arrays are concatenated (base first, then patch). Used internally by `createClient` to ensure multiple plugins can add hooks without clobbering each other.

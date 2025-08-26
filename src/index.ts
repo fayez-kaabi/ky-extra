@@ -394,7 +394,7 @@ export function withObservability(opts: WithObservabilityOptions = {}): Plugin {
     const hooks: Hooks = options.hooks ?? {};
     const beforeError = [...(hooks.beforeError ?? [])];
     if (onError) {
-      beforeError.push(async (err) => {
+      beforeError.push(async (err: unknown) => {
         try {
           onError({id: 'hook', durationMs: 0, error: err});
         } catch { /* ignore */ }
