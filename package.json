@@ -1,6 +1,6 @@
 {
   "name": "ky-extra",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Small, zero-dep plugins and utilities for ky HTTP client: auth, smart retry, and portable in-memory cache.",
   "type": "module",
   "license": "MIT",
@@ -78,5 +78,3 @@
     "provenance": true
   }
 }
-
-
