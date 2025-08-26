@@ -109,6 +109,14 @@ Returns: `ky.Options` (non-hook fields overridden by `patchOptions`; hook arrays
 
 No Node-only APIs are used at runtime; cache uses standards-only `fetch`.
 
+#### Runtime notes
+
+- Requires a standards `fetch`/`Request`/`Response` environment (Browser, Node ≥18, Workers/Edge, Bun, Deno with npm compat).
+- Deno: import via npm specifiers or an import map; ensure `ky` is resolved properly.
+- SSR/Edge (Next.js, Workers): make sure `fetch` is available in the runtime (it is by default).
+- In-memory cache is per-process and per-client instance; it does not persist across server restarts or to disk.
+- ESM-only: import with `import {createClient} from 'ky-extra'`.
+
 ### FAQ
 
 - 401 keeps failing: Ensure your `refresh()` really updates the token source used by `getToken()`.
