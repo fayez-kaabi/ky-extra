@@ -51,11 +51,11 @@ jobs:
       - run: npm install
       - name: Build
         run: npm run build
-      - name: Start Miniflare and probe endpoint
+      - name: Wrangler dev smoke (Miniflare under the hood)
         run: |
-          npx -y miniflare examples/workers/worker.mjs --modules --port 8787 &
+          npx wrangler dev examples/workers/worker.mjs --local --port 8787 &
           sleep 2
-          node -e "fetch('http://127.0.0.1:8787').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"
+          curl -sSf http://127.0.0.1:8787 > /dev/null
 
   deno:
     runs-on: ubuntu-latest
@@ -70,6 +70,6 @@ jobs:
       - run: npm install
       - run: npm run build
       - name: Run Deno smoke
-        run: deno run --allow-net examples/deno/smoke.ts
+        run: deno run --allow-net --config examples/deno/deno.json examples/deno/smoke.ts
 
 

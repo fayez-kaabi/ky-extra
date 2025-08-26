@@ -236,7 +236,8 @@ You should see logs for auth refresh, retry, and cache.
 
   ```bash
   npm run build
-  npx miniflare examples/workers/worker.mjs --modules --port 8787
+  # Wrangler uses Miniflare under the hood in dev
+  npx wrangler dev examples/workers/worker.mjs --local --port 8787
   # in another terminal
   curl http://127.0.0.1:8787
   ```
@@ -245,7 +246,7 @@ You should see logs for auth refresh, retry, and cache.
 
   ```bash
   npm run build
-  deno run --allow-net examples/deno/smoke.ts
+  deno run --allow-net --config examples/deno/deno.json examples/deno/smoke.ts
   ```
 
 - Bun (runs the Node example):
