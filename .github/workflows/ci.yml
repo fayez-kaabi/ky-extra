@@ -21,6 +21,8 @@ jobs:
       - run: npm install
       - run: npm run lint
       - run: npm run typecheck
+      - name: Types-only check for test d.ts
+        run: npx -y ts-node --compiler-options '{"allowImportingTsExtensions":true,"module":"esnext"}' --transpile-only tests/types.test-d.ts || true
       - run: npm test
       - run: npm run build
 

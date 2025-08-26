@@ -80,6 +80,13 @@ Deep-merges Ky options and concatenates hooks arrays, then returns `ky.create()`
 
 Deep-merges two Ky `Options` objects where hook arrays are concatenated (base first, then patch). Used internally by `createClient` to ensure multiple plugins can add hooks without clobbering each other.
 
+| Parameter | Type | Description |
+|---|---|---|
+| baseOptions | `ky.Options` | The base options (existing client state) |
+| patchOptions | `ky.Options` | The plugin-provided patch to merge into base |
+
+Returns: `ky.Options` (non-hook fields overridden by `patchOptions`; hook arrays concatenated in order: base → patch).
+
 ### Runtime support
 
 - Browser: ✅
