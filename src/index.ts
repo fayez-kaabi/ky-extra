@@ -502,10 +502,8 @@ export function withPolicy(opts: WithPolicyOptions = {}): Plugin {
         const rh = (request as unknown as Request).headers;
         for (const [k] of rh) if (shouldBlock(k)) rh.delete(k);
       } catch {}
-      // Timeout
-      if (typeof timeoutMs === 'number' && timeoutMs > 0) {
-        normalized.timeout = Math.min(normalized.timeout ?? timeoutMs, timeoutMs);
-      }
+      // Note: Ky's NormalizedOptions does not expose `timeout`; if you need per-request timeouts,
+      // configure `options.timeout` at client creation or wrap fetch externally.
       // Signing (best-effort)
       if (sign) {
         try {

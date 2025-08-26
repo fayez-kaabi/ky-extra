@@ -255,4 +255,6 @@ You should see logs for auth refresh, retry, and cache.
   bun examples/node/index.mjs
   ```
 
+- Next.js (App Router snippet): See `examples/nextjs/README.md` for code you can paste into an existing Next.js app.
+
 
