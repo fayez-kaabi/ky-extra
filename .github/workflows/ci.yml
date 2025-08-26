@@ -55,8 +55,14 @@ jobs:
         run: |
           cd examples/workers
           npx wrangler dev --local --port 8787 &
-          sleep 5
-          curl -sSf http://127.0.0.1:8787 > /dev/null
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:8787 > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Wrangler dev did not become ready in time" >&2
+          exit 1
 
   deno:
     runs-on: ubuntu-latest
