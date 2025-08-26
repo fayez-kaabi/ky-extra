@@ -29,4 +29,32 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun install --no-save
+      - run: bun run build
+      - name: Run Node example under Bun
+        run: bun examples/node/index.mjs
+
+  workers-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+      - run: npm install
+      - name: Build
+        run: npm run build
+      - name: Start Miniflare and probe endpoint
+        run: |
+          npx -y miniflare examples/workers/worker.mjs --modules --port 8787 &
+          sleep 2
+          node -e "fetch('http://127.0.0.1:8787').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"
+
 
