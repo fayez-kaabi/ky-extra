@@ -451,8 +451,7 @@ export function withCacheLRU(opts: WithCacheLRUOptions = {}): Plugin {
       const req = new Request(input as any, init as any);
       const method = req.method.toUpperCase();
       if (!methods.includes(method as 'GET' | 'HEAD')) return orig(req as any);
-      const ccReq = req.headers.get('cache-control');
-      if (ccReq && /no-cache|no-store/i.test(ccReq)) return orig(req as any);
+      // Ignore request Cache-Control for LRU to maximize hit rate; respect response directives below
       const k = getKey(req);
       const now = Date.now();
       const hit = lru.get(k);
@@ -495,7 +494,8 @@ export function withPolicy(opts: WithPolicyOptions = {}): Plugin {
       const h = new Headers(normalized.headers);
       for (const [k] of h) if (shouldBlock(k)) h.delete(k);
       normalized.headers = h;
-      // Do not attempt to mutate the original request headers; rely on normalized headers only.
+      // Also strip from the in-flight Request headers to be safe across environments
+      for (const [k] of request.headers) if (shouldBlock(k)) request.headers.delete(k);
       // Note: Ky's NormalizedOptions does not expose `timeout`; for per-request timeouts,
       // configure `options.timeout` at client creation or wrap fetch externally.
       // Signing (best-effort)
