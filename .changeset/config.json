@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@2.3.1/schema.json",
-  "changelog": ["@changesets/changelog-github", {"repo": "your-org/ky-extra"}],
+  "changelog": ["@changesets/changelog-github", {"repo": "fayez-kaabi/ky-extra"}],
   "commit": false,
   "fixed": [],
   "linked": [],

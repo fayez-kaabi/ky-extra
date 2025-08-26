@@ -7,12 +7,12 @@
   "author": "",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/ky-extra.git"
+    "url": "git+https://github.com/fayez-kaabi/ky-extra.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/ky-extra/issues"
+    "url": "https://github.com/fayez-kaabi/ky-extra/issues"
   },
-  "homepage": "https://github.com/your-org/ky-extra#readme",
+  "homepage": "https://github.com/fayez-kaabi/ky-extra#readme",
   "sideEffects": false,
   "engines": {
     "node": ">=18.18"

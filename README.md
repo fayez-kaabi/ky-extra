@@ -3,7 +3,7 @@
 Small, zero-dep plugins for the ky HTTP client: auth with refresh, smart retry, and a portable in-memory cache. ESM-only, tree-shakable.
 
 [![npm version](https://img.shields.io/npm/v/ky-extra.svg)](https://www.npmjs.com/package/ky-extra)
-[![CI](https://github.com/your-org/ky-extra/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/ky-extra/actions/workflows/ci.yml)
+[![CI](https://github.com/fayez-kaabi/ky-extra/actions/workflows/ci.yml/badge.svg)](https://github.com/fayez-kaabi/ky-extra/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen)](./coverage)
 [![Bundle size](https://badgen.net/bundlephobia/minzip/ky-extra)](https://bundlephobia.com/package/ky-extra)
 
