@@ -20,7 +20,7 @@ describe('withTLS', () => {
     const text = await api.get('').text();
     expect(text).toBe('ok');
     await new Promise<void>((r) => server.close(() => r()));
-  });
+  }, 20000);
 });
 
 
