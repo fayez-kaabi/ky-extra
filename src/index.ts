@@ -689,7 +689,10 @@ export function withProxy(opts: WithProxyOptions = {}): Plugin {
   // Lazy import undici bits
   let Undici: any;
   const getUndici = async () => {
-    if (!Undici) Undici = await import('undici');
+    if (!Undici) {
+      const modName = 'undici';
+      Undici = await (new Function('m', 'return import(m)'))(modName);
+    }
     return Undici;
   };
   const agentCache = new Map<string, any>();
@@ -752,7 +755,10 @@ export function withTLS(opts: WithTLSOptions = {}): Plugin {
   }
   let Undici: any;
   const getUndici = async () => {
-    if (!Undici) Undici = await import('undici');
+    if (!Undici) {
+      const modName = 'undici';
+      Undici = await (new Function('m', 'return import(m)'))(modName);
+    }
     return Undici;
   };
   const loadFile = (p?: string): Buffer | undefined => {
