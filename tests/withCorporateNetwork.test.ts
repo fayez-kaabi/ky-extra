@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {createClient, withCorporateNetwork} from '../src/index';
+import {createClient, withCorporateNetwork} from '../src/index.js';
 
 describe('withCorporateNetwork preset', () => {
   it('applies timeout and request id', async () => {

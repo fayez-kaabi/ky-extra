@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {createClient, withRequestId, withOtel, withRedaction} from '../src/index';
+import {createClient, withRequestId, withOtel, withRedaction} from '../src/index.js';
 
 describe('withRequestId', () => {
   it('adds header when missing', async () => {

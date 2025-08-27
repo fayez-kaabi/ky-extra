@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {createClient, withProxy, withCorporateNetwork} from '../src/index';
+import {createClient, withProxy, withCorporateNetwork} from '../src/index.js';
 
 // Mock undici to assert dispatcher usage without a real proxy
 vi.mock('undici', () => {

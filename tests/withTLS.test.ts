@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {createClient, withTLS} from '../src/index';
+import {createClient, withTLS} from '../src/index.js';
 import http from 'node:http';
 
 describe('withTLS', () => {
