@@ -691,7 +691,12 @@ export function withProxy(opts: WithProxyOptions = {}): Plugin {
   const getUndici = async () => {
     if (!Undici) {
       const modName = 'undici';
-      Undici = await (new Function('m', 'return import(m)'))(modName);
+      try {
+        // Use non-literal to avoid TS resolution in non-Node builds; works with Vitest mocks
+        Undici = await import(modName as any);
+      } catch (e) {
+        throw new Error('withProxy requires optional peer dependency "undici" in Node runtimes');
+      }
     }
     return Undici;
   };
@@ -757,7 +762,11 @@ export function withTLS(opts: WithTLSOptions = {}): Plugin {
   const getUndici = async () => {
     if (!Undici) {
       const modName = 'undici';
-      Undici = await (new Function('m', 'return import(m)'))(modName);
+      try {
+        Undici = await import(modName as any);
+      } catch {
+        throw new Error('withTLS requires optional peer dependency "undici" in Node runtimes');
+      }
     }
     return Undici;
   };
