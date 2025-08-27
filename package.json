@@ -1,6 +1,6 @@
 {
   "name": "ky-extra",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Plugins for ky: auth, smart retry, TTL/LRU cache, dedup, rate limit, circuit breaker, observability + helpers. ESM-only.",
   "type": "module",
   "license": "MIT",
@@ -61,8 +61,12 @@
     "@opentelemetry/api": ">=1.4.0"
   },
   "peerDependenciesMeta": {
-    "undici": {"optional": true},
-    "@opentelemetry/api": {"optional": true}
+    "undici": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.7.4",
