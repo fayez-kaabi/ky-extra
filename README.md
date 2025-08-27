@@ -206,6 +206,102 @@ const api = createClient({prefixUrl: '/api'}, withObservability({
 }));
 ```
 
+### Enterprise add-ons (Node-only)
+
+#### Proxy
+
+Environment variables (Node):
+
+```
+HTTPS_PROXY=http://corp-proxy:8080
+NO_PROXY=localhost,127.0.0.1,.internal,10.0.0.0/8
+```
+
+Code:
+
+```ts
+import {createClient, withProxy} from 'ky-extra';
+
+const api = createClient(
+  {prefixUrl: process.env.API_URL!},
+  withProxy({useEnv: true, perHost: {'api.example.com': 'http://eu-proxy:8080'}})
+);
+```
+
+Browser/edge runtimes: `withProxy` is a no-op.
+
+Options:
+
+| name | type | default |
+|---|---|---|
+| proxyUrl | string | undefined |
+| useEnv | boolean | true |
+| noProxy | string[] | [] |
+| perHost | Record<string,string> | {} |
+
+#### Corporate CA & mTLS
+
+- Honor `NODE_EXTRA_CA_CERTS` by default
+- Or provide paths explicitly:
+
+```ts
+import {withTLS} from 'ky-extra';
+
+const api = createClient({prefixUrl: 'https://internal.example.com'}, withTLS({
+  caCertPath: '/etc/ssl/certs/corp-ca.pem',
+  // certPath: '/path/client.crt',
+  // keyPath: '/path/client.key',
+  rejectUnauthorized: true,
+}));
+```
+
+Security note: avoid `rejectUnauthorized: false` in production.
+
+Options:
+
+| name | type | default |
+|---|---|---|
+| caCertPath | string | NODE_EXTRA_CA_CERTS if set |
+| certPath | string | undefined |
+| keyPath | string | undefined |
+| rejectUnauthorized | boolean | true |
+
+#### CorporateNetwork preset
+
+```ts
+import {withCorporateNetwork} from 'ky-extra';
+
+const api = createClient(
+  {prefixUrl: process.env.API_URL!},
+  withCorporateNetwork({ timeoutMs: 15000 })
+);
+```
+
+Includes proxy/TLS (if configured), smart retry, request id, and a response size guard.
+
+Options:
+
+| name | type | default |
+|---|---|---|
+| proxy | WithProxyOptions | undefined |
+| tls | WithTLSOptions | undefined |
+| retry | WithRetrySmartOptions | `{ limit: 3, statuses: [408,429,500,502,503,504], backoffCapMs: 2000 }` |
+| timeoutMs | number | 15000 |
+| maxResponseBytes | number | 10000000 |
+
+#### Observability & policies
+
+- `withRequestId({ header = 'X-Request-ID', generator })`
+- `withOtel()` — if `@opentelemetry/api` is installed, spans are created; otherwise no-op
+- `withRedaction({ headers })` — masks sensitive headers for your logging hooks
+
+Request ID options:
+
+| name | type | default |
+|---|---|---|
+| header | string | `"X-Request-ID"` |
+| generator | () => string | `crypto.randomUUID()` fallback |
+
 #### Helpers
 
 - jsonValidated(response, validate): parse JSON and validate via provided function.
@@ -255,8 +351,9 @@ Returns: `ky.Options` (non-hook fields overridden by `patchOptions`; hook arrays
 
 ### Runtime support
 
-- Browser: ✅
-- Node ≥18.18: ✅
+- Node ≥18.18: ✅ (proxy/TLS available)
+- Browser: ✅ (proxy/TLS are no-ops)
+- Workers/Edge: ⚠️ `withProxy`/`withTLS` are no-ops; others work if `fetch` exists
 - Bun: ✅
 - Deno (via npm compat or import maps): ✅
 

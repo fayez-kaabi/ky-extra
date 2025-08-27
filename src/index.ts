@@ -408,7 +408,9 @@ export function withObservability(opts: WithObservabilityOptions = {}): Plugin {
       const start = performance?.now?.() ?? Date.now();
       try {
         const info = {url: req.url, method: req.method, headers: req.headers};
-        const red = redact ? redact(info) : info;
+        const defaultRedactor = (options as any)[Symbol.for('ky-extra/redact')];
+        const r = redact ?? defaultRedactor;
+        const red = r ? r(info) : info;
         onStart?.({id, url: red.url, method: red.method, startMs: Date.now()});
         const res = await origFetch(req as any);
         const end = performance?.now?.() ?? Date.now();
@@ -434,10 +436,7 @@ export function withCacheLRU(opts: WithCacheLRUOptions = {}): Plugin {
   const {capacity = 100, ttlMs = 10_000, methods = ['GET', 'HEAD']} = opts;
   type Entry = {expiresAt: number; response: Response};
   const lru = new Map<string, Entry>();
-  const getKey = (req: Request) => {
-    const u = new URL(req.url);
-    return `${req.method} ${u.pathname}${u.search}`;
-  };
+  const getKey = (req: Request) => `${req.method.toUpperCase()} ${new URL(req.url).toString()}`;
   const setLRU = (k: string, v: Entry) => {
     if (lru.has(k)) lru.delete(k);
     lru.set(k, v);
@@ -539,5 +538,304 @@ export const presets = {
     return [withRetrySmart(), withCache(), withDedup()];
   },
 };
+
+
+// =========================
+// Enterprise Add-ons (Node-only helpers + presets)
+// =========================
+
+// Shared symbol to allow cross-plugin redaction config without mutating public types
+const REDACT_SYMBOL: unique symbol = Symbol.for('ky-extra/redact');
+
+export interface WithRequestIdOptions {
+  header?: string;
+  generator?: () => string;
+}
+
+export function withRequestId(opts: WithRequestIdOptions = {}): Plugin {
+  const {header = 'X-Request-ID', generator} = opts;
+  const gen = generator ?? (() => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`));
+  return (options: Options): Options => {
+    const hooks: Hooks = options.hooks ?? {};
+    const beforeRequest = [...(hooks.beforeRequest ?? [])];
+    beforeRequest.push(async (request: KyRequest) => {
+      if (!request.headers.has(header)) request.headers.set(header, gen());
+    });
+    return {...options, hooks: {...hooks, beforeRequest}} as Options;
+  };
+}
+
+export interface WithRedactionOptions {
+  headers?: string[]; // header names to mask
+  bodyPaths?: string[]; // reserved for future use; body redaction not performed by default
+}
+
+export function withRedaction(opts: WithRedactionOptions = {}): Plugin {
+  const {headers = ['authorization', 'proxy-authorization', 'cookie', 'set-cookie']} = opts;
+  const maskHeaders = (h: Headers): Headers => {
+    const clone = new Headers(h);
+    for (const [k] of h) {
+      if (headers.some((x) => x.toLowerCase() === k.toLowerCase())) clone.set(k, '***');
+    }
+    return clone;
+  };
+  const redact = (info: {url: string; method: string; headers: Headers}) => ({
+    url: info.url,
+    method: info.method,
+    headers: maskHeaders(info.headers),
+  });
+  return (options: Options): Options => {
+    // Attach a non-enumerable symbol property other plugins can use as default redactor
+    (options as any)[REDACT_SYMBOL] = redact;
+    return options;
+  };
+}
+
+export function withOtel(): Plugin {
+  let apiPromise: Promise<any> | undefined;
+  const loadApi = async () => {
+    if (!apiPromise) {
+      const modName = '@' + 'opentelemetry/api';
+      // Dynamic optional import; module may not be installed at runtime
+      apiPromise = (new Function('m', 'return import(m)'))(modName).catch(() => undefined);
+    }
+    return apiPromise;
+  };
+  return (options: Options): Options => {
+    const orig = options.fetch ?? fetch;
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const api = await loadApi();
+      if (!api) return orig(req as any);
+      const tracer = api.trace.getTracer('ky-extra');
+      return await tracer.startActiveSpan(`HTTP ${req.method}`, async (span: any) => {
+        try {
+          span.setAttribute('http.method', req.method);
+          span.setAttribute('http.url', req.url);
+          const res = await orig(req as any);
+          span.setAttribute('http.status_code', res.status);
+          span.setStatus({code: res.ok ? 1 : 2}); // Ok=1, Error=2 (minimal)
+          span.end();
+          return res;
+        } catch (err) {
+          try { span.recordException?.(err as any); span.setStatus?.({code: 2}); } catch { /* ignore */ }
+          span.end();
+          throw err;
+        }
+      });
+    };
+    // If no redact provided, use global redaction symbol if present
+    const hooks: Hooks = options.hooks ?? {};
+    const existingRedact = (options as any)[REDACT_SYMBOL];
+    return {...options, fetch: wrapped, hooks, ...(existingRedact ? { } : {})} as Options;
+  };
+}
+
+// Node-only helpers
+function isNodeRuntime(): boolean {
+  return typeof process !== 'undefined' && !!(process as any).versions?.node;
+}
+
+// Minimal CIDR matcher for IPv4
+function ipInCidr(ip: string, cidr: string): boolean {
+  const [range, bitsStr] = cidr.split('/');
+  const bits = Number(bitsStr);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+  const toLong = (x: string) => x.split('.').reduce((acc, oct) => (acc << 8) + (Number(oct) & 255), 0) >>> 0;
+  try {
+    const ipLong = toLong(ip);
+    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+    const rangeLong = toLong(range);
+    return (ipLong & mask) === (rangeLong & mask);
+  } catch { return false; }
+}
+
+function hostMatchesNoProxy(host: string, patterns: string[]): boolean {
+  // Normalize host (strip port)
+  const h = host.replace(/:\d+$/, '');
+  for (const p of patterns) {
+    const s = p.trim();
+    if (!s) continue;
+    if (s.includes('/')) {
+      // CIDR
+      // Attempt IPv4 match
+      if (/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(s)) {
+        // best-effort: resolve host to ip not implemented; match literal ip only
+        if (/^\d+\.\d+\.\d+\.\d+$/.test(h) && ipInCidr(h, s)) return true;
+      }
+      continue;
+    }
+    if (s.startsWith('.')) {
+      if (h === s.slice(1) || h.endsWith(s)) return true;
+    } else if (h === s) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export interface WithProxyOptions {
+  proxyUrl?: string;
+  useEnv?: boolean;
+  noProxy?: string[];
+  perHost?: Record<string, string>;
+}
+
+export function withProxy(opts: WithProxyOptions = {}): Plugin {
+  const {proxyUrl, useEnv = true, noProxy = [], perHost = {}} = opts;
+  if (!isNodeRuntime()) {
+    return (_options: Options) => _options; // no-op outside Node
+  }
+  // Lazy import undici bits
+  let Undici: any;
+  const getUndici = async () => {
+    if (!Undici) Undici = await import('undici');
+    return Undici;
+  };
+  const agentCache = new Map<string, any>();
+  const getAgentFor = async (url: string) => {
+    const {ProxyAgent} = await getUndici();
+    let agent = agentCache.get(url);
+    if (!agent) { agent = new ProxyAgent(url); agentCache.set(url, agent); }
+    return agent;
+  };
+  const getEnv = (k: string): string | undefined => {
+    const env = (process as any).env ?? {};
+    return env[k] ?? env[k.toLowerCase()];
+  };
+
+  return (options: Options): Options => {
+    const orig = options.fetch ?? fetch;
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const u = new URL(req.url);
+      const host = u.hostname;
+      // perHost mapping has highest priority and should override NO_PROXY
+      let effective: string | undefined = perHost[host];
+      if (!effective) {
+        const envNoProxy = useEnv ? (getEnv('NO_PROXY') ?? '') : '';
+        const npList = [envNoProxy.split(',').filter(Boolean), noProxy].flat();
+        if (hostMatchesNoProxy(host, npList)) {
+          return orig(req as any);
+        }
+      }
+      if (!effective) effective = proxyUrl;
+      if (!effective && useEnv) {
+        const httpsProxy = getEnv('HTTPS_PROXY');
+        const httpProxy = getEnv('HTTP_PROXY');
+        effective = u.protocol === 'https:' ? (httpsProxy ?? httpProxy) : httpProxy;
+      }
+      if (!effective) return orig(req as any);
+      const eff = effective;
+      const {fetch: undiciFetch} = await getUndici();
+      const dispatcher = await getAgentFor(eff);
+      const init2: any = {method: req.method, headers: req.headers, body: req.body};
+      if (req.body) init2.duplex = 'half';
+      const res = await undiciFetch(req.url, {...init2, dispatcher});
+      return res;
+    };
+    return {...options, fetch: wrapped} as Options;
+  };
+}
+
+export interface WithTLSOptions {
+  caCertPath?: string;
+  certPath?: string;
+  keyPath?: string;
+  rejectUnauthorized?: boolean;
+}
+
+export function withTLS(opts: WithTLSOptions = {}): Plugin {
+  const {caCertPath, certPath, keyPath, rejectUnauthorized = true} = opts;
+  if (!isNodeRuntime()) {
+    return (_options: Options) => _options; // no-op outside Node
+  }
+  let Undici: any;
+  const getUndici = async () => {
+    if (!Undici) Undici = await import('undici');
+    return Undici;
+  };
+  const loadFile = (p?: string): Buffer | undefined => {
+    if (!p) return undefined;
+    const fs = require('node:fs');
+    return fs.readFileSync(p);
+  };
+  const envExtra = () => {
+    const env = (process as any).env ?? {};
+    return env.NODE_EXTRA_CA_CERTS as string | undefined;
+  };
+  return (options: Options): Options => {
+    const wrapped: typeof fetch = async (input, init) => {
+      const req = new Request(input as any, init as any);
+      const {fetch: undiciFetch, Agent} = await getUndici();
+      const caCandidate = caCertPath ?? envExtra();
+      const caBuf = loadFile(caCandidate);
+      const certBuf = loadFile(certPath);
+      const keyBuf = loadFile(keyPath);
+      const agent = new Agent({
+        connect: {
+          ca: caBuf,
+          cert: certBuf,
+          key: keyBuf,
+          rejectUnauthorized,
+        },
+      });
+      const init2: any = {method: req.method, headers: req.headers, body: req.body};
+      if (req.body) init2.duplex = 'half';
+      return undiciFetch(req.url, {...init2, dispatcher: agent});
+    };
+    return {...options, fetch: wrapped} as Options;
+  };
+}
+
+export interface WithCorporateNetworkOptions {
+  proxy?: WithProxyOptions;
+  tls?: WithTLSOptions;
+  retry?: WithRetrySmartOptions;
+  timeoutMs?: number;
+  maxResponseBytes?: number;
+}
+
+export function withCorporateNetwork(opts: WithCorporateNetworkOptions = {}): Plugin {
+  const {proxy, tls, retry, timeoutMs = 15_000, maxResponseBytes = 10_000_000} = opts;
+  return (baseOptions: Options): Options => {
+    let options = {...baseOptions, timeout: timeoutMs} as Options;
+    const components: Plugin[] = [];
+    if (proxy) components.push(withProxy(proxy));
+    if (tls) components.push(withTLS(tls));
+    components.push(withRetrySmart(retry));
+    // Size guard wrapper
+    components.push((o: Options) => {
+      const orig = o.fetch ?? fetch;
+      const wrapped: typeof fetch = async (input, init) => {
+        const res = await (orig as any)(input as any, init as any);
+        const body = res.body as ReadableStream<Uint8Array> | null;
+        if (!body) return res;
+        let total = 0;
+        const guarded = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const reader = body.getReader();
+            const pump = (): any => reader.read().then(({done, value}) => {
+              if (done) { controller.close(); return; }
+              total += value?.byteLength ?? 0;
+              if (total > maxResponseBytes) { controller.error(new Error('Response size limit exceeded')); return; }
+              controller.enqueue(value!);
+              return pump();
+            }).catch((e) => controller.error(e));
+            return pump();
+          },
+        });
+        return new Response(guarded as any, {status: res.status, statusText: res.statusText, headers: res.headers});
+      };
+      return {...o, fetch: wrapped} as Options;
+    });
+    // Request-ID by default
+    components.push(withRequestId({}));
+    for (const p of components) options = mergeHooks(options, p(options));
+    return options;
+  };
+}
+
+// (withObservability) already reads a default redactor from Symbol('ky-extra/redact') if provided by withRedaction
 
 
