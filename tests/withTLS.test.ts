@@ -1,4 +1,13 @@
-import {describe, it, expect} from 'vitest';
+import {describe, it, expect, vi} from 'vitest';
+// Mock undici so withTLS can import it during tests without the real dep
+vi.mock('undici', () => {
+  class Agent { constructor(_opts?: any) {} }
+  const fetch = async (url: any, init: any) => {
+    const {dispatcher: _d, ...rest} = init ?? {};
+    return globalThis.fetch(url, rest as any);
+  };
+  return {Agent, fetch};
+});
 import {createClient, withTLS} from '../src/index.js';
 import http from 'node:http';
 
